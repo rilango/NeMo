@@ -16,18 +16,23 @@ import os
 import shutil
 import tempfile
 from collections import defaultdict
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, Callable, Generator
+from contextlib import contextmanager
 
 import torch
+import pytorch_lightning as pl
 from pytorch_lightning.overrides import LightningDistributedModule
 from pytorch_lightning.plugins.environments.cluster_environment import ClusterEnvironment
 from pytorch_lightning.plugins.io.checkpoint_plugin import CheckpointIO
 from pytorch_lightning.plugins.training_type.ddp import DDPPlugin
+from pytorch_lightning.plugins.precision import NativeMixedPrecisionPlugin
 from pytorch_lightning.utilities.types import _PATH
 from torch.nn.parallel import DistributedDataParallel
 
 from nemo.core.connectors.save_restore_connector import SaveRestoreConnector
+from nemo.core.optim import MasterOptimizerWrapper
 from nemo.utils import AppState, logging
+
 
 try:
     from apex.transformer import parallel_state
@@ -329,3 +334,61 @@ class GradScaler(torch.cuda.amp.GradScaler):
 
         # To prepare for next iteration, clear the data collected from optimizers this iteration.
         self._per_optimizer_states = defaultdict(torch.cuda.amp.grad_scaler._refresh_per_optimizer_state)
+        
+
+class HalfPrecisionPlugin(NativeMixedPrecisionPlugin):
+    """
+    Plugin for Half (FP16 and BF16) precision training
+    This plugin assumes the uase of the optimizer with master parameters
+
+    Args:
+        precision: Whether to use ``torch.float16`` (``16``) or ``torch.bfloat16`` (``'bf16'``).
+        device: The device for ``torch.autocast``.
+        scaler: An optional :class:`torch.cuda.amp.GradScaler` to use.
+    """
+
+    def __init__(
+        self, precision: Union[str, int], device: str, scaler: Optional[torch.cuda.amp.GradScaler] = None
+    ) -> None:
+        super().__init__(precision, device, scaler)
+
+    def optimizer_step(
+        self,
+        model: Union["pl.LightningModule", torch.nn.Module],
+        optimizer: torch.optim.Optimizer,
+        optimizer_idx: int,
+        closure: Callable[[], Any],
+        **kwargs: Any,
+    ) -> None:
+        assert isinstance(optimizer, MasterOptimizerWrapper), \
+                "HalfPrecisionPlugin supports only the optimizer with master parameters"
+        if self.scaler is None:
+            # cast fp16 grads to fp32 and copy to main grads, which are used for unscale and param update
+            optimizer.copy_model_grads_to_main_grads()
+            # skip scaler logic, as bfloat16 does not require scaler
+            return super().optimizer_step(model, optimizer, optimizer_idx, closure, **kwargs)
+        if isinstance(optimizer, torch.optim.LBFGS):
+            raise MisconfigurationException(
+                f"Native AMP and the LBFGS optimizer are not compatible (optimizer {optimizer_idx})."
+            )
+        closure_result = closure()
+        # cast fp16 grads to fp32 and copy to main grads, which are used for unscale and param update
+        optimizer.copy_model_grads_to_main_grads()
+        # `unscale` after the closure is executed but before the `on_before_optimizer_step` hook.
+        # unscale fp32 gradients
+        self.scaler.unscale_(optimizer)
+        self._after_closure(model, optimizer, optimizer_idx)
+        skipped_backward = closure_result is None
+        # in manual optimization, the closure does not return a value
+        if not isinstance(model, pl.LightningModule) or not model.automatic_optimization or not skipped_backward:
+            # note: the scaler will skip the `optimizer.step` if nonfinite gradients are found
+            self.scaler.step(optimizer, **kwargs)
+            self.scaler.update()
+
+    @contextmanager
+    def forward_context(self) -> Generator[None, None, None]:
+        """ No explicit precision casting. Inputs are supposed to be manually casted """
+        try:
+            yield
+        finally:
+            pass

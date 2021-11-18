@@ -114,3 +114,4 @@ model:
       warmup_steps: 500
       constant_steps: 50000
       min_lr: 2e-5
+    master_param: True # Use master parameter based optimizer
