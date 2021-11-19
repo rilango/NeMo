@@ -116,7 +116,11 @@ if __name__ == '__main__':
 
         original_duration = len(signal) / sample_rate
         logging.debug(f'Duration: {original_duration}s, file_name: {path_audio}')
-        log_probs = asr_model.transcribe(paths2audio_files=[str(path_audio)], batch_size=1, logprobs=True)[0]
+        try:
+            log_probs = asr_model.transcribe(paths2audio_files=[str(path_audio)], batch_size=1, logprobs=True)[0]
+        except:
+            pass
+
 
         # move blank values to the first column
         blank_col = log_probs[:, -1].reshape((log_probs.shape[0], 1))
