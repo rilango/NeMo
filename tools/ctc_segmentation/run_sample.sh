@@ -17,6 +17,8 @@ DATA_DIR="/home/ebakhturina/data/segmentation/benchmark/${FOLDER}"
 MODEL_NAME_OR_PATH="QuartzNet15x5Base-En"  #"stt_en_citrinet_512_gamma_0_25" #"stt_en_conformer_ctc_small" #
 OUTPUT_DIR="/home/ebakhturina/data/segmentation/benchmark/${MODEL_NAME_OR_PATH}${FOLDER}_old"
 
+rm -rf ${OUTPUT_DIR}
+
 for ARG in "$@"
 do
     key=$(echo $ARG | cut -f1 -d=)
@@ -90,11 +92,13 @@ for WINDOW in 8000 #12000
 do
   python $SCRIPTS_DIR/run_ctc_segmentation.py \
   --output_dir=$OUTPUT_DIR \
-  --data=$OUTPUT_DIR/processed/ \
+  --data=/home/ebakhturina/data/segmentation/benchmark/DEL/sample_processed/ \
   --model=$MODEL_NAME_OR_PATH  \
-  --window_len $WINDOW || exit
+  --window_len $WINDOW \
+  --no_parallel \
+  --debug || exit
 done
-
+exit
 # STEP #3 (Optional)
 # Verify aligned segments only if multiple WINDOWs used in the Step #2)
 python $SCRIPTS_DIR/verify_segments.py \
