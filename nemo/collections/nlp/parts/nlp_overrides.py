@@ -363,8 +363,9 @@ class HalfPrecisionPlugin(NativeMixedPrecisionPlugin):
         assert isinstance(optimizer, MasterOptimizerWrapper), \
                 "HalfPrecisionPlugin supports only the optimizer with master parameters"
         if self.scaler is None:
-            # cast fp16 grads to fp32 and copy to main grads, which are used for unscale and param update
-            optimizer.copy_model_grads_to_main_grads()
+            if not optimizer.fp32_grad_accum:
+                # cast fp16 grads to fp32 and copy to main grads, which are used for unscale and param update
+                optimizer.copy_model_grads_to_main_grads()
             # skip scaler logic, as bfloat16 does not require scaler
             return super().optimizer_step(model, optimizer, optimizer_idx, closure, **kwargs)
         if isinstance(optimizer, torch.optim.LBFGS):
@@ -372,8 +373,9 @@ class HalfPrecisionPlugin(NativeMixedPrecisionPlugin):
                 f"Native AMP and the LBFGS optimizer are not compatible (optimizer {optimizer_idx})."
             )
         closure_result = closure()
-        # cast fp16 grads to fp32 and copy to main grads, which are used for unscale and param update
-        optimizer.copy_model_grads_to_main_grads()
+        if not optimizer.fp32_grad_accum:
+            # cast fp16 grads to fp32 and copy to main grads, which are used for unscale and param update
+            optimizer.copy_model_grads_to_main_grads()
         # `unscale` after the closure is executed but before the `on_before_optimizer_step` hook.
         # unscale fp32 gradients
         self.scaler.unscale_(optimizer)

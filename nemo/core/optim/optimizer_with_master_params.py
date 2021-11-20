@@ -159,6 +159,7 @@ class Float16OptimizerWithFloat16Params(MasterOptimizerWrapper):
                  params_have_main_grad=False,
                  use_contiguous_buffers_in_local_ddp=False,
                  bf16=False,
+                 fp32_grad_accum=False,
                  ):
 
         super().__init__(optimizer,
@@ -188,6 +189,11 @@ class Float16OptimizerWithFloat16Params(MasterOptimizerWrapper):
         self.fp32_from_float16_groups = []
         self.fp32_from_fp32_groups = []
 
+        self.fp32_grad_accum = fp32_grad_accum
+        # gradient function hooks needed when using fp32 grad accumulation
+        if self.fp32_grad_accum:
+            self.grad_accs = []
+
         # For all the groups in the original optimizer:
         for param_group in self.optimizer.param_groups:
             float16_params_this_group = []
@@ -211,9 +217,7 @@ class Float16OptimizerWithFloat16Params(MasterOptimizerWrapper):
                         fp32_from_float16_params_this_group.append(main_param)
                         # Reset existing state dict key to the new main param.
                         if param in self.optimizer.state:
-                            self.optimizer.state[main_param] \
-                                = self.optimizer.state.pop(param)
-
+                            self.optimizer.state[main_param] = self.optimizer.state.pop(param)
                     # fp32 params.
                     elif param.type() == 'torch.cuda.FloatTensor':
                         fp32_params_this_group.append(param)
@@ -226,6 +230,15 @@ class Float16OptimizerWithFloat16Params(MasterOptimizerWrapper):
                                         'torch.cuda.BFloat16Tensor. '
                                         'Received {}'.format(param.type()))
 
+                # Add gradient accumulation hook for fp32 grad accumulation
+                if self.fp32_grad_accum:
+                    # Expand so we get access to grad_fn.
+                    param_tmp = param.expand_as(param)
+                    # Get the gradient accumulator functtion.
+                    grad_acc = param_tmp.grad_fn.next_functions[0][0]
+                    grad_acc.register_hook(self._make_param_hook(param, main_param))
+
+
             self.float16_groups.append(float16_params_this_group)
             self.fp32_from_float16_groups.append(
                 fp32_from_float16_params_this_group)
@@ -234,6 +247,18 @@ class Float16OptimizerWithFloat16Params(MasterOptimizerWrapper):
         # Leverage state_dict() and load_state_dict() to
         # recast preexisting per-param state tensors
         self.optimizer.load_state_dict(self.optimizer.state_dict())
+
+
+    def _make_param_hook(self, param, main_param):
+        """Create the all-reduce hook for backprop."""
+        # Hook used for back-prop.
+        def param_hook(*unused):
+            # Add the gradient to the buffer.
+            if param.grad.data is not None:
+                main_param.add_(param.grad.data)
+                # Now we can deallocate grad memory.
+                param.grad = None
+        return param_hook
 
 
     def zero_grad(self, set_to_none=True):
