@@ -481,9 +481,38 @@ def get_segments(
     config_new.index_duration = 0.04
     ground_truth_mat_new, utt_begin_indices_new = prepare_textNEW(config_new, text)
 
-    # print("NEW package")
-    # print(ground_truth_mat_new.shape)
-    # # _print(ground_truth_mat_new, vocabulary)
+    print("NEW package")
+    print(ground_truth_mat_new.shape)
+    _print(ground_truth_mat_new, vocabulary)
+    print(ground_truth_mat_new[:10])
+    import pdb; pdb.set_trace()
+    """
+    {'excluded_characters': ".,-?!:»«;'›‹()", 
+    'char_list': ['ε', ' ', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', "'"], 
+    'min_window_size': 16000, 'blank': 1, 'index_duration': 0.04}
+    (41323, 1)
+    [[-1]
+     [ 1]
+     [ 9]
+     [ 6]
+     [13]
+     [13]
+     [16]
+     [ 1]
+     [ 2]
+     [15]]
+    
+    []
+    [' ']
+    ['h']
+    ['e']
+    ['l']
+    ['l']
+    ['o']
+    [' ']
+
+    """
+
     # for i in range(ground_truth_mat.shape[0]):
     #     if ground_truth_mat[i] != ground_truth_mat_new[i]:
     #         print(i)
