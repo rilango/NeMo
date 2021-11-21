@@ -106,7 +106,7 @@ def ctc_segmentation_new(config, lpz, ground_truth):
             table,
             lpz.astype(np.float32),
             np.array(ground_truth, dtype=np.int64),
-            np.array(offsets, dtype=np.int64),
+            offsets,
             config.blank,
             config.flags,
         )
@@ -130,7 +130,7 @@ def ctc_segmentation_new(config, lpz, ground_truth):
         """
         print('--> t', t, 'new 15924')
         print('--> c', c, 'new 41322')
-        import pdb; pdb.set_trace()
+
         if config.backtrack_from_max_t:
             t = table.shape[0] - 1
         logging.debug(
@@ -479,6 +479,7 @@ def get_segments(
     # config_new.frame_duration_ms = frame_duration_ms
     # config_new.subsampling_factor = 2
     config_new.index_duration = 0.04
+
     ground_truth_mat_new, utt_begin_indices_new = prepare_textNEW(config_new, text)
 
     print("NEW package")
